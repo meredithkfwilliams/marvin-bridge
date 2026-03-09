@@ -1,0 +1,9 @@
+{
+  "name": "marvin-bridge",
+  "version": "1.0.0",
+  "description": "Middleman API: Amazing Marvin → Claude",
+  "private": true,
+  "engines": {
+    "node": "18.x"
+  }
+}
