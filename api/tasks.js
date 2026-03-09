@@ -4,35 +4,29 @@ function unauthorized(res) {
   res.status(401).json({ error: "Unauthorized" });
 }
 
-function formatDate(ts) {
-  if (!ts) return null;
-  return new Date(ts).toISOString().split("T")[0];
-}
-
-function buildTaskTree(tasks, categories, parentMap) {
-  // Build a map of id -> item
-  const itemMap = {};
-  for (const c of categories) itemMap[c._id] = { ...c, children: [], tasks: [] };
-  for (const t of tasks) itemMap[t._id] = t;
-
-  const roots = [];
-  for (const t of tasks) {
-    const parent = itemMap[t.parentId];
-    if (parent && parent.tasks) {
-      parent.tasks.push(t);
-    } else {
-      roots.push(t);
-    }
-  }
-  return { roots, itemMap };
-}
-
 function taskToMarkdown(t, indent = "") {
-  const due = t.dueDate ? ` 📅 due ${t.dueDate}` : "";
-  const time = t.timeEstimate ? ` ⏱ ${Math.round(t.timeEstimate / 60)}m` : "";
   const star = t.isStarred ? " ⭐" : "";
+
+  const frogMap = { 1: " 🐸", 2: " 🐸(baby)", 3: " 🐸(monster)" };
+  const frog = t.isFrogged ? (frogMap[t.isFrogged] || " 🐸") : "";
+
+  const priorityMap = { 1: " 🔴p1", 2: " 🟠p2", 3: " 🟡p3" };
+  const priority = t.priority ? (priorityMap[t.priority] || "") : "";
+
+  const due = t.dueDate ? ` 📅 due ${t.dueDate}` : "";
+  const scheduled = t.day && t.day !== "unassigned" ? ` 📆 scheduled ${t.day}` : "";
+  const time = t.timeEstimate && t.timeEstimate < 99999 ? ` ⏱ ${Math.round(t.timeEstimate / 60)}m` : "";
   const labels = t.labels && t.labels.length ? ` [${t.labels.join(", ")}]` : "";
-  return `${indent}- [ ] ${t.title}${star}${due}${time}${labels}`;
+
+  let line = `${indent}- [ ] ${t.title}${star}${frog}${priority}${due}${scheduled}${time}${labels}`;
+
+  if (t.note && t.note.trim()) {
+    // Indent note lines under the task
+    const noteLines = t.note.trim().split("\n").map(l => `${indent}  > ${l}`).join("\n");
+    line += `\n${noteLines}`;
+  }
+
+  return line;
 }
 
 async function fetchMarvin(endpoint, apiToken) {
@@ -43,14 +37,39 @@ async function fetchMarvin(endpoint, apiToken) {
   return res.json();
 }
 
+// Recursively fetch and render a node and all its children
+async function renderNode(id, title, apiToken, depth = 0) {
+  const headingLevel = Math.min(depth + 2, 6);
+  const heading = "#".repeat(headingLevel);
+  const indent = "  ".repeat(Math.max(depth - 1, 0));
+  let output = `\n${heading} ${title}\n`;
+
+  try {
+    const children = await fetchMarvin(`/children?parentId=${id}`, apiToken);
+
+    const tasks = children.filter((i) => !i.type || i.type === "task");
+    const containers = children.filter((i) => i.type === "project" || i.type === "category");
+
+    for (const t of tasks) {
+      output += taskToMarkdown(t, indent) + "\n";
+    }
+
+    for (const c of containers) {
+      output += await renderNode(c._id, c.title, apiToken, depth + 1);
+    }
+  } catch (_) {
+    // Silently skip nodes we can't fetch
+  }
+
+  return output;
+}
+
 export default async function handler(req, res) {
-  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Auth
   const { token, view = "today", format = "markdown", date } = req.query;
   const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
   const MARVIN_API_TOKEN = process.env.MARVIN_API_TOKEN;
@@ -67,9 +86,7 @@ export default async function handler(req, res) {
       const items = await fetchMarvin(`/todayItems?date=${targetDate}`, MARVIN_API_TOKEN);
       const tasks = items.filter((i) => i.type !== "category");
 
-      if (format === "json") {
-        return res.status(200).json({ date: targetDate, tasks });
-      }
+      if (format === "json") return res.status(200).json({ date: targetDate, tasks });
 
       output = `# Today's Tasks — ${targetDate}\n\n`;
       if (tasks.length === 0) {
@@ -92,7 +109,6 @@ export default async function handler(req, res) {
       }
 
     } else if (view === "all") {
-      // Fetch categories + unassigned tasks
       const [categories, unassigned] = await Promise.all([
         fetchMarvin("/categories", MARVIN_API_TOKEN),
         fetchMarvin("/children?parentId=unassigned", MARVIN_API_TOKEN),
@@ -100,30 +116,17 @@ export default async function handler(req, res) {
 
       if (format === "json") return res.status(200).json({ categories, unassigned });
 
-      output = `# All Tasks & Projects — ${today}\n\n`;
+      output = `# All Tasks — ${today}\n`;
 
-      // Top-level categories
       const topCats = categories.filter((c) => c.parentId === "root" || !c.parentId);
       for (const cat of topCats) {
-        output += `\n## ${cat.title}\n`;
-        try {
-          const children = await fetchMarvin(`/children?parentId=${cat._id}`, MARVIN_API_TOKEN);
-          const tasks = children.filter((i) => i.db === "Tasks" || (!i.type && i.title));
-          const projects = children.filter((i) => i.type === "project");
-          for (const t of tasks) output += taskToMarkdown(t) + "\n";
-          for (const p of projects) {
-            output += `\n### ${p.title}\n`;
-            try {
-              const ptasks = await fetchMarvin(`/children?parentId=${p._id}`, MARVIN_API_TOKEN);
-              for (const t of ptasks.filter((i) => !i.type)) output += taskToMarkdown(t, "  ") + "\n";
-            } catch (_) {}
-          }
-        } catch (_) {}
+        output += await renderNode(cat._id, cat.title, MARVIN_API_TOKEN, 0);
       }
 
-      if (unassigned.length > 0) {
+      const unassignedTasks = unassigned.filter((i) => !i.type || i.type === "task");
+      if (unassignedTasks.length > 0) {
         output += `\n## Unassigned\n`;
-        for (const t of unassigned.filter((i) => !i.type)) output += taskToMarkdown(t) + "\n";
+        for (const t of unassignedTasks) output += taskToMarkdown(t) + "\n";
       }
 
     } else if (view === "categories") {
@@ -133,9 +136,13 @@ export default async function handler(req, res) {
       output = `# Categories & Projects — ${today}\n\n`;
       const topCats = categories.filter((c) => c.parentId === "root" || !c.parentId);
       for (const cat of topCats) {
-        output += `- **${cat.title}** (id: \`${cat._id}\`)\n`;
+        output += `- **${cat.title}**\n`;
         const children = categories.filter((c) => c.parentId === cat._id);
-        for (const child of children) output += `  - ${child.title} (id: \`${child._id}\`)\n`;
+        for (const child of children) {
+          output += `  - ${child.title}\n`;
+          const grandchildren = categories.filter((c) => c.parentId === child._id);
+          for (const gc of grandchildren) output += `    - ${gc.title}\n`;
+        }
       }
 
     } else {
