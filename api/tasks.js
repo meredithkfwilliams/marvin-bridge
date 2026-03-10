@@ -152,14 +152,30 @@ export default async function handler(req, res) {
       output = `# Categories & Projects - ${today}\n\n`;
       const topCats = categories.filter((c) => c.parentId === "root" || !c.parentId);
       for (const cat of topCats) {
-        output += `- **${cat.title}**\n`;
+        output += `- **${cat.title}** [id:${cat._id}]\n`;
         const children = categories.filter((c) => c.parentId === cat._id);
         for (const child of children) {
-          output += `  - ${child.title}\n`;
+          output += `  - ${child.title} [id:${child._id}]\n`;
           const grandchildren = categories.filter((c) => c.parentId === child._id);
-          for (const gc of grandchildren) output += `    - ${gc.title}\n`;
+          for (const gc of grandchildren) output += `    - ${gc.title} [id:${gc._id}]\n`;
         }
       }
+
+    } else if (view === "category") {
+      // Fetch a single category/project by ID — used by Planning Claude to avoid truncation
+      const catId = req.query.id;
+      if (!catId) return res.status(400).json({ error: "Missing id parameter. Use ?view=category&id=CATEGORY_ID" });
+
+      // Get the category name from the categories list
+      const categories = await fetchMarvin("/categories", MARVIN_API_TOKEN);
+      const cat = categories.find((c) => c._id === catId);
+      const catTitle = cat ? cat.title : catId;
+
+      output = `# ${catTitle} - ${today}\n`;
+      output += await renderNode(catId, catTitle, MARVIN_API_TOKEN, 0);
+
+      // Strip the duplicate heading renderNode adds
+      output = output.replace(`# ${catTitle} - ${today}\n\n## ${catTitle}\n`, `# ${catTitle} - ${today}\n`);
 
     } else if (view === "debug") {
       // Debug: dump raw children of a parentId to see what fields look like
@@ -169,7 +185,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ parentId, count: children.length, children });
 
     } else {
-      return res.status(400).json({ error: `Unknown view: ${view}. Use: today, overdue, all, categories, debug` });
+      return res.status(400).json({ error: `Unknown view: ${view}. Use: today, overdue, all, categories, category, debug` });
     }
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
