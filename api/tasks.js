@@ -4,11 +4,22 @@ function unauthorized(res) {
   res.status(401).json({ error: "Unauthorized" });
 }
 
+function isContainer(item) {
+  // Containers are categories or projects
+  return item.type === "project" || item.type === "category";
+}
+
+function isTask(item) {
+  // Tasks have no type field, or type === "task"
+  // BUT we must exclude items that are actually containers
+  if (isContainer(item)) return false;
+  // Items with a title and no container type are tasks
+  return !!item.title;
+}
+
 function taskToMarkdown(t, indent = "") {
   const star = t.isStarred ? " ⭐" : "";
-
-  const frogMap = { 1: " 🐸", 2: " 🐸(baby)", 3: " 🐸(monster)" };
-  const frog = t.isFrogged ? (frogMap[t.isFrogged] || " 🐸") : "";
+  const frog = t.isFrogged ? " 🐸" : "";
 
   const priorityMap = { 1: " 🔴p1", 2: " 🟠p2", 3: " 🟡p3" };
   const priority = t.priority ? (priorityMap[t.priority] || "") : "";
@@ -21,7 +32,6 @@ function taskToMarkdown(t, indent = "") {
   let line = `${indent}- [ ] ${t.title}${star}${frog}${priority}${due}${scheduled}${time}${labels}`;
 
   if (t.note && t.note.trim()) {
-    // Indent note lines under the task
     const noteLines = t.note.trim().split("\n").map(l => `${indent}  > ${l}`).join("\n");
     line += `\n${noteLines}`;
   }
@@ -47,8 +57,8 @@ async function renderNode(id, title, apiToken, depth = 0) {
   try {
     const children = await fetchMarvin(`/children?parentId=${id}`, apiToken);
 
-    const tasks = children.filter((i) => !i.type || i.type === "task");
-    const containers = children.filter((i) => i.type === "project" || i.type === "category");
+    const tasks = children.filter(isTask);
+    const containers = children.filter(isContainer);
 
     for (const t of tasks) {
       output += taskToMarkdown(t, indent) + "\n";
@@ -57,8 +67,14 @@ async function renderNode(id, title, apiToken, depth = 0) {
     for (const c of containers) {
       output += await renderNode(c._id, c.title, apiToken, depth + 1);
     }
-  } catch (_) {
-    // Silently skip nodes we can't fetch
+
+    // If nothing rendered, note it's empty (helps with debugging)
+    if (tasks.length === 0 && containers.length === 0) {
+      output += `${indent}_empty_\n`;
+    }
+
+  } catch (err) {
+    output += `${indent}_error fetching: ${err.message}_\n`;
   }
 
   return output;
@@ -84,11 +100,11 @@ export default async function handler(req, res) {
     if (view === "today") {
       const targetDate = date || today;
       const items = await fetchMarvin(`/todayItems?date=${targetDate}`, MARVIN_API_TOKEN);
-      const tasks = items.filter((i) => i.type !== "category");
+      const tasks = items.filter(isTask);
 
       if (format === "json") return res.status(200).json({ date: targetDate, tasks });
 
-      output = `# Today's Tasks — ${targetDate}\n\n`;
+      output = `# Today's Tasks - ${targetDate}\n\n`;
       if (tasks.length === 0) {
         output += "_No tasks scheduled for today._\n";
       } else {
@@ -97,11 +113,11 @@ export default async function handler(req, res) {
 
     } else if (view === "overdue") {
       const items = await fetchMarvin("/dueItems", MARVIN_API_TOKEN);
-      const overdue = items.filter((i) => i.dueDate && i.dueDate < today);
+      const overdue = items.filter((i) => isTask(i) && i.dueDate && i.dueDate < today);
 
       if (format === "json") return res.status(200).json({ overdue });
 
-      output = `# Overdue Tasks — as of ${today}\n\n`;
+      output = `# Overdue Tasks - as of ${today}\n\n`;
       if (overdue.length === 0) {
         output += "_No overdue tasks. Nice work._\n";
       } else {
@@ -116,14 +132,14 @@ export default async function handler(req, res) {
 
       if (format === "json") return res.status(200).json({ categories, unassigned });
 
-      output = `# All Tasks — ${today}\n`;
+      output = `# All Tasks - ${today}\n`;
 
       const topCats = categories.filter((c) => c.parentId === "root" || !c.parentId);
       for (const cat of topCats) {
         output += await renderNode(cat._id, cat.title, MARVIN_API_TOKEN, 0);
       }
 
-      const unassignedTasks = unassigned.filter((i) => !i.type || i.type === "task");
+      const unassignedTasks = unassigned.filter(isTask);
       if (unassignedTasks.length > 0) {
         output += `\n## Unassigned\n`;
         for (const t of unassignedTasks) output += taskToMarkdown(t) + "\n";
@@ -133,7 +149,7 @@ export default async function handler(req, res) {
       const categories = await fetchMarvin("/categories", MARVIN_API_TOKEN);
       if (format === "json") return res.status(200).json({ categories });
 
-      output = `# Categories & Projects — ${today}\n\n`;
+      output = `# Categories & Projects - ${today}\n\n`;
       const topCats = categories.filter((c) => c.parentId === "root" || !c.parentId);
       for (const cat of topCats) {
         output += `- **${cat.title}**\n`;
@@ -145,8 +161,15 @@ export default async function handler(req, res) {
         }
       }
 
+    } else if (view === "debug") {
+      // Debug: dump raw children of a parentId to see what fields look like
+      const parentId = req.query.parentId || "root";
+      const children = await fetchMarvin(`/children?parentId=${parentId}`, MARVIN_API_TOKEN);
+      res.setHeader("Content-Type", "application/json");
+      return res.status(200).json({ parentId, count: children.length, children });
+
     } else {
-      return res.status(400).json({ error: `Unknown view: ${view}. Use: today, overdue, all, categories` });
+      return res.status(400).json({ error: `Unknown view: ${view}. Use: today, overdue, all, categories, debug` });
     }
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
