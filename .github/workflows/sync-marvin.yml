@@ -1,0 +1,28 @@
+name: Sync Marvin to Google Doc
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # allows manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install googleapis
+
+      - name: Fetch and write tasks
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_DOC_ID: ${{ secrets.GOOGLE_DOC_ID }}
+          MARVIN_API_TOKEN: ${{ secrets.MARVIN_API_TOKEN }}
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        run: node scripts/sync-to-gdoc.js
