@@ -70,6 +70,10 @@ function taskToMarkdown(t, labelMap = {}, indent = "") {
     return line;
 }
 
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchMarvin(endpoint, apiToken) {
     const res = await fetch(`${MARVIN_BASE}${endpoint}`, {
         headers: { "X-API-Token": apiToken },
@@ -88,6 +92,7 @@ async function fetchAllTasksFlat(apiToken) {
 
     async function collectChildren(parentId, categoryPath) {
         const children = await fetchMarvin(`/children?parentId=${parentId}`, apiToken);
+        await sleep(200);
         for (const item of children) {
             if (isTask(item)) {
                 allTasks.push({ ...item, _categoryPath: categoryPath });
