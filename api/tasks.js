@@ -489,10 +489,29 @@ export default async function handler(req, res) {
 
         // ── REFRESH ───────────────────────────────────────────────────────────────
         } else if (view === "refresh") {
-            const content = await buildCacheContent(MARVIN_API_TOKEN);
-            await writeToDoc(content);
+            const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+            if (!GITHUB_TOKEN) return res.status(500).json({ error: "GITHUB_TOKEN not configured" });
+
+            const triggerRes = await fetch(
+                "https://api.github.com/repos/meredithkfwilliams/marvin-bridge/dispatches",
+                {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${GITHUB_TOKEN}`,
+                        "Accept": "application/vnd.github+json",
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ event_type: "refresh" }),
+                }
+            );
+
+            if (!triggerRes.ok) {
+                const err = await triggerRes.text();
+                return res.status(500).json({ error: `GitHub dispatch failed: ${err}` });
+            }
+
             res.setHeader("Content-Type", "text/plain; charset=utf-8");
-            return res.status(200).send(`✅ Refreshed at ${new Date().toISOString()}`);
+            return res.status(200).send(`✅ Refresh triggered at ${new Date().toISOString()} — doc will update in ~30-60 seconds.`);
 
         // ── UNKNOWN ───────────────────────────────────────────────────────────────
         } else {
