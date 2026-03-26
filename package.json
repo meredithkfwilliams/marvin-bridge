@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "description": "Middleman API: Amazing Marvin → Claude",
   "private": true,
+  "type": "module",
   "engines": {
     "node": "24.x"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0"
   }
 }
-
