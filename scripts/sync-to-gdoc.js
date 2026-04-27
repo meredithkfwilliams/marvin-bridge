@@ -45,7 +45,7 @@ function isScheduledTodayOrPast(item, today) { return hasScheduled(item) && item
 function isScheduledFuture(item, today) { return hasScheduled(item) && item.day > today; }
 
 function taskToMarkdown(t, labelMap = {}) {
-    const urgencyMap = { 2: " 🔥", 4: " 🟠" };
+    const urgencyMap = { 4: " 🔥", 2: " 🟠" };
     const urgency = urgencyMap[urgencyLevel(t)] || "";
 
     const weightMap = { 4: " ⚫", 2: " 🔘" };
