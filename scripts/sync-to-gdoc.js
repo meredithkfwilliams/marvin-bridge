@@ -25,25 +25,41 @@ function isTask(item) {
     return !!item.title;
 }
 
-function starLevel(item) { return item.isStarred || 0; }
-function isRedOrOrange(item) { return starLevel(item) === 3 || starLevel(item) === 2; }
-function isYellow(item) { return starLevel(item) === 1; }
-function hasFrog(item) { return !!item.isFrogged; }
+// isUrgent: 4 = very urgent, 2 = urgent, missing/0 = none
+function urgencyLevel(item) { return item.isUrgent || 0; }
+function isVeryUrgent(item) { return urgencyLevel(item) === 4; }
+function isUrgent(item) { return urgencyLevel(item) === 2; }
+function isAnyUrgent(item) { return urgencyLevel(item) > 0; }
+
+// mentalWeight: 4 = crushing, 2 = weighing on mind, missing/0 = none
+function weightLevel(item) { return item.mentalWeight || 0; }
+function isCrushing(item) { return weightLevel(item) === 4; }
+function isWeighted(item) { return weightLevel(item) > 0; }
+
+// orbit: true = in orbit
+function isOrbit(item) { return !!item.orbit; }
+
 function hasScheduled(item) { return item.day && item.day !== "unassigned"; }
 function isScheduledTodayOrPast(item, today) { return hasScheduled(item) && item.day <= today; }
-function isScheduledFuture(item, today) { return hasScheduled(item) && item.day > today; }
 
 function taskToMarkdown(t, labelMap = {}) {
-    const starMap = { 3: " 🔴", 2: " 🟠", 1: " 🟡" };
-    const star = starMap[starLevel(t)] || "";
-    const frog = hasFrog(t) ? " 🐸" : "";
+    const urgencyMap = { 4: " 🔴", 2: " 🟠" };
+    const urgency = urgencyMap[urgencyLevel(t)] || "";
+
+    const weightMap = { 4: " ⚫", 2: " 🔘" };
+    const weight = weightMap[weightLevel(t)] || "";
+
+    const orbit = isOrbit(t) ? " 🔵" : "";
     const scheduled = hasScheduled(t) ? ` 📆 ${t.day}` : "";
     const due = t.dueDate ? ` 📅 due ${t.dueDate}` : "";
     const time = t.timeEstimate && t.timeEstimate < 99999 ? ` ⏱ ${Math.round(t.timeEstimate / 60)}m` : "";
+
     const labelNames = (t.labelIds || []).map((id) => labelMap[id] || id).filter(Boolean);
     const labels = labelNames.length ? ` [${labelNames.join(", ")}]` : "";
     const category = t._categoryPath ? ` {${t._categoryPath}}` : "";
-    let line = `- [ ] ${t.title}${star}${frog}${scheduled}${due}${time}${labels}${category}`;
+
+    let line = `- [ ] ${t.title}${urgency}${weight}${orbit}${scheduled}${due}${time}${labels}${category}`;
+
     if (t.note && t.note.trim() && t.note.trim() !== "\\") {
         const noteLines = t.note.trim().split("\n").map((l) => `  > ${l}`).join("\n");
         line += `\n${noteLines}`;
@@ -81,7 +97,7 @@ async function fetchAllTasksFlat() {
 
     const unassigned = await fetchMarvin("/children?parentId=unassigned");
     for (const item of unassigned) {
-        if (isTask(item)) allTasks.push({ ...item, _categoryPath: "Unassigned" });
+        if (isTask(item)) allTasks.push({ ...item, _categoryPath: "Inbox" });
     }
 
     return allTasks;
@@ -96,55 +112,94 @@ async function buildContent() {
     const labelMap = Object.fromEntries(rawLabels.map((l) => [l._id, l.title]));
     const selfLabel = rawLabels.find((l) => l.title.toLowerCase() === "self");
     const selfId = selfLabel ? selfLabel._id : null;
+    function hasSelfLabel(t) { return selfId && (t.labelIds || []).includes(selfId); }
 
     let out = `Last synced: ${new Date().toISOString()}\n\n`;
 
-    // TODAY
-    const todayTasks = allTasks.filter((t) => hasFrog(t) || isScheduledTodayOrPast(t, today));
-    const actionable = todayTasks.filter(isRedOrOrange);
-    const missingStars = todayTasks.filter((t) => !isRedOrOrange(t));
-    out += `# Today - ${today}\n\n`;
-    if (actionable.length === 0) out += "_No actionable items for today._\n";
-    else for (const t of actionable) out += taskToMarkdown(t, labelMap) + "\n";
-    if (missingStars.length > 0) {
-        out += `\n## ⚠️ Missing Star\n`;
-        for (const t of missingStars) out += taskToMarkdown(t, labelMap) + "\n";
-    }
-
-    // ON DECK
-    const ondeck = allTasks.filter((t) => isRedOrOrange(t) && !hasFrog(t) && !hasScheduled(t));
-    out += `\n# On Deck\n\n`;
-    if (ondeck.length === 0) out += "_Nothing on deck._\n";
-    else for (const t of ondeck) out += taskToMarkdown(t, labelMap) + "\n";
-
-    // UPCOMING
-    const upcoming = allTasks
-        .filter((t) => isScheduledFuture(t, today))
-        .sort((a, b) => a.day.localeCompare(b.day));
-    out += `\n# Upcoming\n\n`;
-    if (upcoming.length === 0) out += "_Nothing scheduled ahead._\n";
-    else for (const t of upcoming) out += taskToMarkdown(t, labelMap) + "\n";
-
-    // JUST FOR ME
-    const justforme = allTasks.filter(
-        (t) => isYellow(t) && selfId && (t.labelIds || []).includes(selfId)
+    // ── NOW ───────────────────────────────────────────────────────────────────
+    // Very urgent OR scheduled today/overdue
+    const now = allTasks.filter((t) =>
+        isVeryUrgent(t) || isScheduledTodayOrPast(t, today)
     );
-    out += `\n# Just For Me\n\n`;
-    if (!selfId) out += `_⚠️ Could not find "self" label._\n`;
-    else if (justforme.length === 0) out += "_Nothing here right now._\n";
-    else for (const t of justforme) out += taskToMarkdown(t, labelMap) + "\n";
+    const nowIds = new Set(now.map((t) => t._id));
+    out += `# Now\n\n`;
+    out += `_Very urgent or scheduled today/overdue._\n\n`;
+    if (now.length === 0) out += `_Nothing here._\n`;
+    else for (const t of now) out += taskToMarkdown(t, labelMap) + "\n";
 
-    // EVERYTHING ELSE
-    const everything = allTasks.filter((t) => {
-        const inToday = hasFrog(t) || isScheduledTodayOrPast(t, today);
-        const inOndeck = isRedOrOrange(t) && !hasFrog(t) && !hasScheduled(t);
-        const inUpcoming = isScheduledFuture(t, today);
-        const inJustForMe = isYellow(t) && selfId && (t.labelIds || []).includes(selfId);
-        return !inToday && !inOndeck && !inUpcoming && !inJustForMe;
-    });
-    out += `\n# Everything Else\n\n`;
-    if (everything.length === 0) out += "_Nothing here._\n";
-    else for (const t of everything) out += taskToMarkdown(t, labelMap) + "\n";
+    // ── NEXT ──────────────────────────────────────────────────────────────────
+    // Urgent OR crushing weight — not in Now
+    const next = allTasks.filter((t) =>
+        !nowIds.has(t._id) &&
+        (isUrgent(t) || isCrushing(t))
+    );
+    const nextIds = new Set(next.map((t) => t._id));
+    out += `\n# Next\n\n`;
+    out += `_Urgent or crushing weight — must happen soon._\n\n`;
+    if (next.length === 0) out += `_Nothing here._\n`;
+    else for (const t of next) out += taskToMarkdown(t, labelMap) + "\n";
+
+    // ── ON DECK ───────────────────────────────────────────────────────────────
+    // Weight (not crushing), no urgency — not in Now or Next
+    const onDeck = allTasks.filter((t) =>
+        !nowIds.has(t._id) &&
+        !nextIds.has(t._id) &&
+        isWeighted(t) &&
+        !isCrushing(t) &&
+        !isAnyUrgent(t)
+    );
+    const onDeckIds = new Set(onDeck.map((t) => t._id));
+    out += `\n# On Deck\n\n`;
+    out += `_Weighing on your mind — no urgency._\n\n`;
+    if (onDeck.length === 0) out += `_Nothing here._\n`;
+    else for (const t of onDeck) out += taskToMarkdown(t, labelMap) + "\n";
+
+    // ── WANTS ─────────────────────────────────────────────────────────────────
+    // Orbit + self label — things you want to do for yourself right now
+    const wants = allTasks.filter((t) =>
+        !nowIds.has(t._id) &&
+        !nextIds.has(t._id) &&
+        !onDeckIds.has(t._id) &&
+        isOrbit(t) &&
+        hasSelfLabel(t)
+    );
+    const wantsIds = new Set(wants.map((t) => t._id));
+    out += `\n# Wants\n\n`;
+    out += `_Orbit + self — things you want to do for yourself right now._\n\n`;
+    if (wants.length === 0) out += `_Nothing here._\n`;
+    else for (const t of wants) out += taskToMarkdown(t, labelMap) + "\n";
+
+    // ── IN VIEW ───────────────────────────────────────────────────────────────
+    // Orbit, no self label, no weight, no urgency — not already surfaced above
+    const inView = allTasks.filter((t) =>
+        !nowIds.has(t._id) &&
+        !nextIds.has(t._id) &&
+        !onDeckIds.has(t._id) &&
+        !wantsIds.has(t._id) &&
+        isOrbit(t) &&
+        !hasSelfLabel(t) &&
+        !isWeighted(t) &&
+        !isAnyUrgent(t)
+    );
+    const inViewIds = new Set(inView.map((t) => t._id));
+    out += `\n# In View\n\n`;
+    out += `_In orbit, no pressure — consciously surfaced but not self-directed._\n\n`;
+    if (inView.length === 0) out += `_Nothing here._\n`;
+    else for (const t of inView) out += taskToMarkdown(t, labelMap) + "\n";
+
+    // ── BACKBURNER ────────────────────────────────────────────────────────────
+    // No signals at all
+    const backburner = allTasks.filter((t) =>
+        !nowIds.has(t._id) &&
+        !nextIds.has(t._id) &&
+        !onDeckIds.has(t._id) &&
+        !wantsIds.has(t._id) &&
+        !inViewIds.has(t._id)
+    );
+    out += `\n# Backburner\n\n`;
+    out += `_No signals — not thinking about this yet._\n\n`;
+    if (backburner.length === 0) out += `_Nothing here._\n`;
+    else for (const t of backburner) out += taskToMarkdown(t, labelMap) + "\n";
 
     return out;
 }
