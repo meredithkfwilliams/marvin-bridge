@@ -25,10 +25,10 @@ function isTask(item) {
     return !!item.title;
 }
 
-// isUrgent: 2 = on fire, 4 = extremely urgent, missing/0 = none
+// isUrgent: 4 = on fire, 2 = extremely urgent, missing/0 = none
 function urgencyLevel(item) { return item.isUrgent || 0; }
-function isOnFire(item) { return urgencyLevel(item) === 2; }
-function isExtremelyUrgent(item) { return urgencyLevel(item) === 4; }
+function isOnFire(item) { return urgencyLevel(item) === 4; }
+function isExtremelyUrgent(item) { return urgencyLevel(item) === 2; }
 function isAnyUrgent(item) { return urgencyLevel(item) > 0; }
 
 // mentalWeight: 4 = overwhelming, 2 = heavy, missing/0 = none
@@ -154,19 +154,6 @@ async function buildContent() {
     if (upcoming.length === 0) out += `_Nothing here._\n`;
     else for (const t of upcoming) out += taskToMarkdown(t, labelMap) + "\n";
 
-    // ── ON DECK ───────────────────────────────────────────────────────────────
-    // Heavy weight, no urgency, no scheduled date
-    const onDeck = allTasks.filter((t) =>
-        !isAnyUrgent(t) &&
-        !hasScheduled(t) &&
-        isHeavy(t)
-    );
-    const onDeckIds = new Set(onDeck.map((t) => t._id));
-    out += `\n# On Deck\n\n`;
-    out += `_Heavy weight — weighing on your mind, no urgency, no date._\n\n`;
-    if (onDeck.length === 0) out += `_Nothing here._\n`;
-    else for (const t of onDeck) out += taskToMarkdown(t, labelMap) + "\n";
-
     // ── WANTS ─────────────────────────────────────────────────────────────────
     // Orbit + self label
     const wants = allTasks.filter((t) =>
@@ -178,6 +165,20 @@ async function buildContent() {
     out += `_Orbit + self — things you want to do for yourself._\n\n`;
     if (wants.length === 0) out += `_Nothing here._\n`;
     else for (const t of wants) out += taskToMarkdown(t, labelMap) + "\n";
+
+    // ── ON DECK ───────────────────────────────────────────────────────────────
+    // Heavy weight, no urgency, no scheduled date — not in Wants
+    const onDeck = allTasks.filter((t) =>
+        !isAnyUrgent(t) &&
+        !hasScheduled(t) &&
+        isHeavy(t) &&
+        !wantsIds.has(t._id)
+    );
+    const onDeckIds = new Set(onDeck.map((t) => t._id));
+    out += `\n# On Deck\n\n`;
+    out += `_Heavy weight — weighing on your mind, no urgency, no date._\n\n`;
+    if (onDeck.length === 0) out += `_Nothing here._\n`;
+    else for (const t of onDeck) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── IN VIEW ───────────────────────────────────────────────────────────────
     // Orbit, no self label, no urgency, no weight, no scheduled date
