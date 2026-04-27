@@ -25,27 +25,31 @@ function isTask(item) {
     return !!item.title;
 }
 
-// isUrgent: 4 = very urgent, 2 = urgent, missing/0 = none
+// isUrgent: 2 = on fire, 4 = extremely urgent, missing/0 = none
 function urgencyLevel(item) { return item.isUrgent || 0; }
-function isVeryUrgent(item) { return urgencyLevel(item) === 4; }
-function isUrgent(item) { return urgencyLevel(item) === 2; }
+function isOnFire(item) { return urgencyLevel(item) === 2; }
+function isExtremelyUrgent(item) { return urgencyLevel(item) === 4; }
 function isAnyUrgent(item) { return urgencyLevel(item) > 0; }
 
-// mentalWeight: 4 = crushing, 2 = weighing on mind, missing/0 = none
+// mentalWeight: 4 = overwhelming (crushing), 2 = heavy (weighing on mind), missing/0 = none
 function weightLevel(item) { return item.mentalWeight || 0; }
-function isCrushing(item) { return weightLevel(item) === 4; }
-function isWeighted(item) { return weightLevel(item) > 0; }
+function isOverwhelming(item) { return weightLevel(item) === 4; }
+function isHeavy(item) { return weightLevel(item) === 2; }
+function isAnyWeight(item) { return weightLevel(item) > 0; }
 
 // orbit: true = in orbit
 function isOrbit(item) { return !!item.orbit; }
 
 function hasScheduled(item) { return item.day && item.day !== "unassigned"; }
 function isScheduledTodayOrPast(item, today) { return hasScheduled(item) && item.day <= today; }
+function isScheduledFuture(item, today) { return hasScheduled(item) && item.day > today; }
 
 function taskToMarkdown(t, labelMap = {}) {
-    const urgencyMap = { 4: " 🔴", 2: " 🟠" };
+    // 🔥 on fire, 🟠 extremely urgent
+    const urgencyMap = { 2: " 🔥", 4: " 🟠" };
     const urgency = urgencyMap[urgencyLevel(t)] || "";
 
+    // ⚫ overwhelming, 🔘 heavy
     const weightMap = { 4: " ⚫", 2: " 🔘" };
     const weight = weightMap[weightLevel(t)] || "";
 
@@ -117,49 +121,62 @@ async function buildContent() {
     let out = `Last synced: ${new Date().toISOString()}\n\n`;
 
     // ── NOW ───────────────────────────────────────────────────────────────────
-    // Very urgent OR scheduled today/overdue
+    // On fire OR scheduled today/past
     const now = allTasks.filter((t) =>
-        isVeryUrgent(t) || isScheduledTodayOrPast(t, today)
+        isOnFire(t) || isScheduledTodayOrPast(t, today)
     );
     const nowIds = new Set(now.map((t) => t._id));
     out += `# Now\n\n`;
-    out += `_Very urgent or scheduled today/overdue._\n\n`;
+    out += `_On fire or scheduled today/overdue. Real consequences today._\n\n`;
     if (now.length === 0) out += `_Nothing here._\n`;
     else for (const t of now) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── NEXT ──────────────────────────────────────────────────────────────────
-    // Urgent OR crushing weight — not in Now
+    // Extremely urgent OR overwhelming weight — NOT on fire, NOT scheduled today/past
     const next = allTasks.filter((t) =>
-        !nowIds.has(t._id) &&
-        (isUrgent(t) || isCrushing(t))
+        !isOnFire(t) &&
+        !isScheduledTodayOrPast(t, today) &&
+        (isExtremelyUrgent(t) || isOverwhelming(t))
     );
     const nextIds = new Set(next.map((t) => t._id));
     out += `\n# Next\n\n`;
-    out += `_Urgent or crushing weight — must happen soon._\n\n`;
+    out += `_Extremely urgent or overwhelming weight. Must happen soon._\n\n`;
     if (next.length === 0) out += `_Nothing here._\n`;
     else for (const t of next) out += taskToMarkdown(t, labelMap) + "\n";
 
+    // ── UPCOMING ──────────────────────────────────────────────────────────────
+    // Future scheduled date — NOT on fire, NOT extremely urgent
+    const upcoming = allTasks.filter((t) =>
+        !isOnFire(t) &&
+        !isExtremelyUrgent(t) &&
+        isScheduledFuture(t, today)
+    ).sort((a, b) => a.day.localeCompare(b.day));
+    const upcomingIds = new Set(upcoming.map((t) => t._id));
+    out += `\n# Upcoming\n\n`;
+    out += `_Future scheduled date. Parked until that day — check here to make sure things are scheduled correctly._\n\n`;
+    if (upcoming.length === 0) out += `_Nothing here._\n`;
+    else for (const t of upcoming) out += taskToMarkdown(t, labelMap) + "\n";
+
     // ── ON DECK ───────────────────────────────────────────────────────────────
-    // Weight (not crushing), no urgency — not in Now or Next
+    // Heavy weight, no urgency, no scheduled date
     const onDeck = allTasks.filter((t) =>
-        !nowIds.has(t._id) &&
-        !nextIds.has(t._id) &&
-        isWeighted(t) &&
-        !isCrushing(t) &&
-        !isAnyUrgent(t)
+        !isOnFire(t) &&
+        !isExtremelyUrgent(t) &&
+        !hasScheduled(t) &&
+        isHeavy(t)
     );
     const onDeckIds = new Set(onDeck.map((t) => t._id));
     out += `\n# On Deck\n\n`;
-    out += `_Weighing on your mind — no urgency._\n\n`;
+    out += `_Heavy weight — weighing on your mind, no urgency, no date._\n\n`;
     if (onDeck.length === 0) out += `_Nothing here._\n`;
     else for (const t of onDeck) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── WANTS ─────────────────────────────────────────────────────────────────
-    // Orbit + self label — things you want to do for yourself right now
+    // Orbit + self label, no urgency, no scheduled date
     const wants = allTasks.filter((t) =>
-        !nowIds.has(t._id) &&
-        !nextIds.has(t._id) &&
-        !onDeckIds.has(t._id) &&
+        !isOnFire(t) &&
+        !isExtremelyUrgent(t) &&
+        !hasScheduled(t) &&
         isOrbit(t) &&
         hasSelfLabel(t)
     );
@@ -170,31 +187,29 @@ async function buildContent() {
     else for (const t of wants) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── IN VIEW ───────────────────────────────────────────────────────────────
-    // Orbit, no self label, no weight, no urgency — not already surfaced above
+    // Orbit, no self label, no urgency, no weight, no scheduled date
     const inView = allTasks.filter((t) =>
-        !nowIds.has(t._id) &&
-        !nextIds.has(t._id) &&
-        !onDeckIds.has(t._id) &&
-        !wantsIds.has(t._id) &&
+        !isOnFire(t) &&
+        !isExtremelyUrgent(t) &&
+        !hasScheduled(t) &&
+        !isAnyWeight(t) &&
         isOrbit(t) &&
-        !hasSelfLabel(t) &&
-        !isWeighted(t) &&
-        !isAnyUrgent(t)
+        !hasSelfLabel(t)
     );
     const inViewIds = new Set(inView.map((t) => t._id));
     out += `\n# In View\n\n`;
-    out += `_In orbit, no pressure — consciously surfaced but not self-directed._\n\n`;
+    out += `_In orbit, no pressure — consciously surfaced, no signals attached._\n\n`;
     if (inView.length === 0) out += `_Nothing here._\n`;
     else for (const t of inView) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── BACKBURNER ────────────────────────────────────────────────────────────
-    // No signals at all
+    // No orbit, no urgency, no weight, no scheduled date
     const backburner = allTasks.filter((t) =>
-        !nowIds.has(t._id) &&
-        !nextIds.has(t._id) &&
-        !onDeckIds.has(t._id) &&
-        !wantsIds.has(t._id) &&
-        !inViewIds.has(t._id)
+        !isOnFire(t) &&
+        !isExtremelyUrgent(t) &&
+        !hasScheduled(t) &&
+        !isAnyWeight(t) &&
+        !isOrbit(t)
     );
     out += `\n# Backburner\n\n`;
     out += `_No signals — not thinking about this yet._\n\n`;
