@@ -31,7 +31,7 @@ function isOnFire(item) { return urgencyLevel(item) === 2; }
 function isExtremelyUrgent(item) { return urgencyLevel(item) === 4; }
 function isAnyUrgent(item) { return urgencyLevel(item) > 0; }
 
-// mentalWeight: 4 = overwhelming (crushing), 2 = heavy (weighing on mind), missing/0 = none
+// mentalWeight: 4 = overwhelming, 2 = heavy, missing/0 = none
 function weightLevel(item) { return item.mentalWeight || 0; }
 function isOverwhelming(item) { return weightLevel(item) === 4; }
 function isHeavy(item) { return weightLevel(item) === 2; }
@@ -45,11 +45,9 @@ function isScheduledTodayOrPast(item, today) { return hasScheduled(item) && item
 function isScheduledFuture(item, today) { return hasScheduled(item) && item.day > today; }
 
 function taskToMarkdown(t, labelMap = {}) {
-    // 🔥 on fire, 🟠 extremely urgent
     const urgencyMap = { 2: " 🔥", 4: " 🟠" };
     const urgency = urgencyMap[urgencyLevel(t)] || "";
 
-    // ⚫ overwhelming, 🔘 heavy
     const weightMap = { 4: " ⚫", 2: " 🔘" };
     const weight = weightMap[weightLevel(t)] || "";
 
@@ -127,41 +125,39 @@ async function buildContent() {
     );
     const nowIds = new Set(now.map((t) => t._id));
     out += `# Now\n\n`;
-    out += `_On fire or scheduled today/overdue. Real consequences today._\n\n`;
+    out += `_On fire or scheduled today/overdue._\n\n`;
     if (now.length === 0) out += `_Nothing here._\n`;
     else for (const t of now) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── NEXT ──────────────────────────────────────────────────────────────────
     // Extremely urgent OR overwhelming weight — NOT on fire, NOT scheduled today/past
     const next = allTasks.filter((t) =>
+        !nowIds.has(t._id) &&
         !isOnFire(t) &&
         !isScheduledTodayOrPast(t, today) &&
         (isExtremelyUrgent(t) || isOverwhelming(t))
     );
     const nextIds = new Set(next.map((t) => t._id));
     out += `\n# Next\n\n`;
-    out += `_Extremely urgent or overwhelming weight. Must happen soon._\n\n`;
+    out += `_Extremely urgent or overwhelming weight — must happen soon._\n\n`;
     if (next.length === 0) out += `_Nothing here._\n`;
     else for (const t of next) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── UPCOMING ──────────────────────────────────────────────────────────────
-    // Future scheduled date — NOT on fire, NOT extremely urgent
+    // Future scheduled date — all of them regardless of other signals
     const upcoming = allTasks.filter((t) =>
-        !isOnFire(t) &&
-        !isExtremelyUrgent(t) &&
         isScheduledFuture(t, today)
     ).sort((a, b) => a.day.localeCompare(b.day));
     const upcomingIds = new Set(upcoming.map((t) => t._id));
     out += `\n# Upcoming\n\n`;
-    out += `_Future scheduled date. Parked until that day — check here to make sure things are scheduled correctly._\n\n`;
+    out += `_Future scheduled date — parked until that day._\n\n`;
     if (upcoming.length === 0) out += `_Nothing here._\n`;
     else for (const t of upcoming) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── ON DECK ───────────────────────────────────────────────────────────────
     // Heavy weight, no urgency, no scheduled date
     const onDeck = allTasks.filter((t) =>
-        !isOnFire(t) &&
-        !isExtremelyUrgent(t) &&
+        !isAnyUrgent(t) &&
         !hasScheduled(t) &&
         isHeavy(t)
     );
@@ -172,29 +168,25 @@ async function buildContent() {
     else for (const t of onDeck) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── WANTS ─────────────────────────────────────────────────────────────────
-    // Orbit + self label, no urgency, no scheduled date
+    // Orbit + self label
     const wants = allTasks.filter((t) =>
-        !isOnFire(t) &&
-        !isExtremelyUrgent(t) &&
-        !hasScheduled(t) &&
         isOrbit(t) &&
         hasSelfLabel(t)
     );
     const wantsIds = new Set(wants.map((t) => t._id));
     out += `\n# Wants\n\n`;
-    out += `_Orbit + self — things you want to do for yourself right now._\n\n`;
+    out += `_Orbit + self — things you want to do for yourself._\n\n`;
     if (wants.length === 0) out += `_Nothing here._\n`;
     else for (const t of wants) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── IN VIEW ───────────────────────────────────────────────────────────────
     // Orbit, no self label, no urgency, no weight, no scheduled date
     const inView = allTasks.filter((t) =>
-        !isOnFire(t) &&
-        !isExtremelyUrgent(t) &&
-        !hasScheduled(t) &&
-        !isAnyWeight(t) &&
         isOrbit(t) &&
-        !hasSelfLabel(t)
+        !hasSelfLabel(t) &&
+        !isAnyUrgent(t) &&
+        !isAnyWeight(t) &&
+        !hasScheduled(t)
     );
     const inViewIds = new Set(inView.map((t) => t._id));
     out += `\n# In View\n\n`;
@@ -205,11 +197,10 @@ async function buildContent() {
     // ── BACKBURNER ────────────────────────────────────────────────────────────
     // No orbit, no urgency, no weight, no scheduled date
     const backburner = allTasks.filter((t) =>
-        !isOnFire(t) &&
-        !isExtremelyUrgent(t) &&
-        !hasScheduled(t) &&
+        !isOrbit(t) &&
+        !isAnyUrgent(t) &&
         !isAnyWeight(t) &&
-        !isOrbit(t)
+        !hasScheduled(t)
     );
     out += `\n# Backburner\n\n`;
     out += `_No signals — not thinking about this yet._\n\n`;
