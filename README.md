@@ -122,6 +122,20 @@ Or just tell Claude — it knows to trigger a refresh if you say your data feels
 
 ---
 
+## Work Sync
+
+Tasks under the **IonQ** top-level Marvin category sync to a separate work Google Doc via `scripts/sync-to-gdoc-work.js`. The personal sync (`sync-to-gdoc.js`) explicitly skips the IonQ category.
+
+### Setup
+
+1. Add a `GOOGLE_DOC_WORK_ID` secret in GitHub Actions (the document ID from the work Google Doc URL).
+2. Share the work Google Doc with the service account:
+   `marvin-bridge-writer@abiding-truth-470417-a8.iam.gserviceaccount.com`
+
+Both syncs run on the same schedule and use the same `GOOGLE_SERVICE_ACCOUNT_JSON` and `MARVIN_API_TOKEN` secrets.
+
+---
+
 ## Security
 
 - Your Marvin API token lives in Vercel's encrypted environment variables and GitHub Secrets, never in code

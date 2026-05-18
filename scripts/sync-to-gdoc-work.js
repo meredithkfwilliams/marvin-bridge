@@ -1,7 +1,7 @@
 import { google } from "googleapis";
 
 const MARVIN_BASE = "https://serv.amazingmarvin.com/api";
-const DOC_ID = process.env.GOOGLE_DOC_ID;
+const DOC_ID = process.env.GOOGLE_DOC_WORK_ID;
 const MARVIN_API_TOKEN = process.env.MARVIN_API_TOKEN;
 
 function sleep(ms) {
@@ -45,7 +45,7 @@ function isScheduledTodayOrPast(item, today) { return hasScheduled(item) && item
 function isScheduledFuture(item, today) { return hasScheduled(item) && item.day > today; }
 
 function taskToMarkdown(t, labelMap = {}) {
-    const urgencyMap = { 4: " 🔥", 2: " 🟠" };
+    const urgencyMap = { 2: " 🔥", 4: " 🟠" };
     const urgency = urgencyMap[urgencyLevel(t)] || "";
 
     const weightMap = { 4: " ⚫", 2: " 🔘" };
@@ -93,14 +93,9 @@ async function fetchAllTasksFlat() {
     }
 
     const topCats = categories.filter((c) => c.parentId === "root" || !c.parentId);
-    for (const cat of topCats) {
-        if (cat.title === "IonQ") continue;
-        await collectChildren(cat._id, cat.title);
-    }
-
-    const unassigned = await fetchMarvin("/children?parentId=unassigned");
-    for (const item of unassigned) {
-        if (isTask(item)) allTasks.push({ ...item, _categoryPath: "Inbox" });
+    const ionq = topCats.find((c) => c.title === "IonQ");
+    if (ionq) {
+        await collectChildren(ionq._id, ionq.title);
     }
 
     return allTasks;
