@@ -18,7 +18,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Update timestamp
-        run: echo "Last keepalive run: $(date -u +%Y-%m-%dT%H:%M:%SZ)" > .github/KEEPALIVE.md
+        run: |
+          echo "Last keepalive run: $(date -u +%Y-%m-%dT%H:%M:%SZ)" > .github/KEEPALIVE.md
 
       - name: Commit and push if changed
         run: |
