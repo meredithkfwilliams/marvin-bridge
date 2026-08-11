@@ -117,23 +117,20 @@ async function buildContent() {
     // ── NOW ───────────────────────────────────────────────────────────────────
     // On fire OR scheduled today/past
     const now = allTasks.filter((t) =>
-        isOnFire(t) || isScheduledTodayOrPast(t, today)
+        (isOnFire(t) && !isScheduledFuture(t, today)) || isScheduledTodayOrPast(t, today)
     );
-    const nowIds = new Set(now.map((t) => t._id));
     out += `# Now\n\n`;
-    out += `_On fire or scheduled today/overdue._\n\n`;
+    out += `_On fire (no date, today, or overdue) or scheduled today/overdue._\n\n`;
     if (now.length === 0) out += `_Nothing here._\n`;
     else for (const t of now) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── NEXT ──────────────────────────────────────────────────────────────────
     // Extremely urgent OR overwhelming weight — NOT on fire, NOT scheduled today/past
     const next = allTasks.filter((t) =>
-        !nowIds.has(t._id) &&
+        (isExtremelyUrgent(t) || isOverwhelming(t)) &&
         !isOnFire(t) &&
-        !isScheduledTodayOrPast(t, today) &&
-        (isExtremelyUrgent(t) || isOverwhelming(t))
+        !isScheduledTodayOrPast(t, today)
     );
-    const nextIds = new Set(next.map((t) => t._id));
     out += `\n# Next\n\n`;
     out += `_Extremely urgent or overwhelming weight — must happen soon._\n\n`;
     if (next.length === 0) out += `_Nothing here._\n`;
@@ -144,9 +141,8 @@ async function buildContent() {
     const upcoming = allTasks.filter((t) =>
         isScheduledFuture(t, today)
     ).sort((a, b) => a.day.localeCompare(b.day));
-    const upcomingIds = new Set(upcoming.map((t) => t._id));
     out += `\n# Upcoming\n\n`;
-    out += `_Future scheduled date — parked until that day._\n\n`;
+    out += `_Future scheduled date — parked until that day, regardless of other signals._\n\n`;
     if (upcoming.length === 0) out += `_Nothing here._\n`;
     else for (const t of upcoming) out += taskToMarkdown(t, labelMap) + "\n";
 
@@ -154,21 +150,24 @@ async function buildContent() {
     // Orbit + self label
     const wants = allTasks.filter((t) =>
         isOrbit(t) &&
-        hasSelfLabel(t)
+        hasSelfLabel(t) &&
+        !isOnFire(t) &&
+        !isExtremelyUrgent(t) &&
+        !hasScheduled(t)
     );
-    const wantsIds = new Set(wants.map((t) => t._id));
     out += `\n# Wants\n\n`;
-    out += `_Orbit + self — things you want to do for yourself._\n\n`;
+    out += `_Orbit + self, not urgent or scheduled — things you want to do for yourself._\n\n`;
     if (wants.length === 0) out += `_Nothing here._\n`;
     else for (const t of wants) out += taskToMarkdown(t, labelMap) + "\n";
 
     // ── ON DECK ───────────────────────────────────────────────────────────────
     // Heavy weight, no urgency, no scheduled date — not in Wants
     const onDeck = allTasks.filter((t) =>
-        !isAnyUrgent(t) &&
-        !hasScheduled(t) &&
         isHeavy(t) &&
-        !wantsIds.has(t._id)
+        !isOnFire(t) &&
+        !isExtremelyUrgent(t) &&
+        !hasScheduled(t) &&
+        !hasSelfLabel(t)
     );
     const onDeckIds = new Set(onDeck.map((t) => t._id));
     out += `\n# On Deck\n\n`;

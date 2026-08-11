@@ -73,13 +73,15 @@ Tasks are automatically sorted into seven priority buckets based on signals set 
 
 | Bucket | Logic | What it means |
 |---|---|---|
-| **Now** | On fire OR scheduled today/past | Must happen today |
+| **Now** | On fire (no date, today, or overdue) OR scheduled today/past | Must happen today |
 | **Next** | Extremely urgent OR overwhelming weight — not on fire, not scheduled today/past | Must happen soon |
-| **Upcoming** | Future scheduled date — all tasks regardless of other signals | Parked until that day |
-| **On Deck** | Heavy weight, no urgency, no date, not in Wants | Weighing on mind, no fire |
-| **Wants** | Orbit + self label | Things you want to do for yourself |
+| **Upcoming** | Future scheduled date — regardless of other signals | Parked until that day |
+| **On Deck** | Heavy weight, not on fire or extremely urgent, no date, no self label | Weighing on mind, no fire |
+| **Wants** | Orbit + self label, not on fire or extremely urgent, no date | Things you want to do for yourself |
 | **In View** | Orbit, no self label, no urgency, no weight, no date | Consciously surfaced, no pressure |
 | **Backburner** | No signals | Not thinking about it yet |
+
+This mirrors Marvin's own smart-list query logic (RPN filters) for each bucket, so a task's Google Doc bucket should always match where it shows up in the Marvin UI.
 
 ### Signal Reference
 
